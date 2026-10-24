@@ -1,12 +1,37 @@
-name: Multi ngrok + RDP Nodes (Parallel)
+name: Multi ngrok + RDP Nodes (Dynamic)
 
 on:
   workflow_dispatch:
+    inputs:
+      instances:
+        description: 'کتنی RDP مشینز بنانی ہیں؟ (مثلاً: 1, 4, یا 10)'
+        required: true
+        default: '4'
+        type: string
 
 jobs:
-  rdp-node-1:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Generate Matrix Array
+        id: set-matrix
+        run: |
+          N=${{ github.event.inputs.instances }}
+          # یہ کمانڈ آپ کے دیے گئے نمبر کو لسٹ میں بدل دے گی (جیسے 4 کو [1,2,3,4] میں)
+          MATRIX_JSON=$(seq 1 $N | jq -R -c 'tonumber' | jq -s -c .)
+          echo "matrix=$MATRIX_JSON" >> $GITHUB_OUTPUT
+
+  rdp-node:
+    needs: setup
     runs-on: windows-latest
     timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ${{ fromJson(needs.setup.outputs.matrix) }}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
@@ -47,7 +72,7 @@ jobs:
         shell: pwsh
         run: |
           $delay = Get-Random -Minimum 15 -Maximum 120
-          Write-Host "⏳ Delaying $delay seconds before enabling RDP and starting ngrok..."
+          Write-Host "⏳ [Node ${{ matrix.node }}] Delaying $delay seconds before enabling RDP and starting ngrok..."
           Start-Sleep -Seconds $delay
 
       - name: Enable Remote Desktop
@@ -64,8 +89,6 @@ jobs:
             $user = Get-LocalUser -Name 'runneradmin' -ErrorAction Stop
             if ($user.Enabled -eq $false) { Enable-LocalUser -Name 'runneradmin' }
           } catch {
-            # If runneradmin doesn't exist, create it (best-effort)
-            Write-Host "runneradmin not found — creating user..."
             $secPass = ConvertTo-SecureString 'P@ssw0rd!' -AsPlainText -Force
             New-LocalUser -Name 'runneradmin' -Password $secPass -FullName 'runneradmin' -Description 'Auto-created account for RDP'
             Add-LocalGroupMember -Group 'Remote Desktop Users' -Member 'runneradmin'
@@ -90,321 +113,26 @@ jobs:
               $response = Invoke-RestMethod -Uri $apiUrl -ErrorAction Stop
               $tcpAddr = ($response.tunnels | Where-Object { $_.proto -eq 'tcp' }).public_url
             } catch {
-              Write-Host "Ngrok API not ready yet... waiting 5s"
+              Start-Sleep -Seconds 5
             }
-            Start-Sleep -Seconds 5
             $tries++
           }
           if ($tcpAddr) {
-            Write-Output "✅ Connect using: $tcpAddr"
+            $cleanAddr = $tcpAddr -replace "tcp://", ""
+            Write-Output "=========================="
+            Write-Output $cleanAddr
+            Write-Output "runneradmin"
+            Write-Output "P@ssw0rd!"
+            Write-Output "=========================="
           } else {
-            Write-Output "⚠️ Unable to fetch tunnel info from ngrok API."
-            Get-Content .\ngrok.log -ErrorAction SilentlyContinue
+            Write-Output "⚠️ [Node ${{ matrix.node }}] Unable to fetch tunnel info from ngrok API."
           }
 
       - name: Keep Alive (approx 6 hours)
         shell: pwsh
         run: |
           for ($i = 0; $i -lt 72; $i++) {
-            Write-Host "⏳ Still alive... Minute: $($i * 5)"
-            Start-Sleep -Seconds 300
-          }
-        continue-on-error: true
-
-  rdp-node-2:
-    runs-on: windows-latest
-    timeout-minutes: 360
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-
-      - name: Download ngrok (with retry)
-        shell: pwsh
-        run: |
-          $retry = 3
-          while ($retry -gt 0) {
-            try {
-              Invoke-WebRequest 'https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip' -OutFile ngrok.zip -UseBasicParsing
-              if (Test-Path ngrok.zip) { break }
-            } catch {
-              Write-Host "Retrying download... ($retry left)"
-            }
-            Start-Sleep -Seconds 5
-            $retry--
-          }
-          if (!(Test-Path ngrok.zip)) { throw "❌ Failed to download ngrok after retries." }
-
-      - name: Extract ngrok
-        shell: pwsh
-        run: |
-          Expand-Archive ngrok.zip -DestinationPath .
-          if (!(Test-Path .\ngrok.exe)) { throw "❌ Failed to extract ngrok." }
-
-      - name: Update ngrok
-        shell: pwsh
-        run: .\ngrok.exe update
-
-      - name: Authenticate ngrok
-        shell: pwsh
-        run: .\ngrok.exe authtoken $Env:NGROK_AUTH_TOKEN
-        env:
-          NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
-
-      - name: Random delay before execution
-        shell: pwsh
-        run: |
-          $delay = Get-Random -Minimum 15 -Maximum 120
-          Write-Host "⏳ Delaying $delay seconds before enabling RDP and starting ngrok..."
-          Start-Sleep -Seconds $delay
-
-      - name: Enable Remote Desktop
-        shell: pwsh
-        run: |
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name 'fDenyTSConnections' -Value 0
-          Enable-NetFirewallRule -DisplayGroup 'Remote Desktop'
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name 'UserAuthentication' -Value 1
-
-      - name: Set Password for runneradmin
-        shell: pwsh
-        run: |
-          try {
-            $user = Get-LocalUser -Name 'runneradmin' -ErrorAction Stop
-            if ($user.Enabled -eq $false) { Enable-LocalUser -Name 'runneradmin' }
-          } catch {
-            Write-Host "runneradmin not found — creating user..."
-            $secPass = ConvertTo-SecureString 'P@ssw0rd!' -AsPlainText -Force
-            New-LocalUser -Name 'runneradmin' -Password $secPass -FullName 'runneradmin' -Description 'Auto-created account for RDP'
-            Add-LocalGroupMember -Group 'Remote Desktop Users' -Member 'runneradmin'
-          }
-          $secPass = ConvertTo-SecureString 'P@ssw0rd!' -AsPlainText -Force
-          Set-LocalUser -Name 'runneradmin' -Password $secPass
-
-      - name: Start ngrok TCP tunnel (RDP port)
-        shell: pwsh
-        run: |
-          Start-Process -FilePath .\ngrok.exe -ArgumentList "tcp 3389" -WindowStyle Hidden
-          Start-Sleep -Seconds 10
-
-      - name: Display connection info
-        shell: pwsh
-        run: |
-          $apiUrl = 'http://127.0.0.1:4040/api/tunnels'
-          $tries = 0
-          $tcpAddr = $null
-          while ($tries -lt 6 -and -not $tcpAddr) {
-            try {
-              $response = Invoke-RestMethod -Uri $apiUrl -ErrorAction Stop
-              $tcpAddr = ($response.tunnels | Where-Object { $_.proto -eq 'tcp' }).public_url
-            } catch {
-              Write-Host "Ngrok API not ready yet... waiting 5s"
-            }
-            Start-Sleep -Seconds 5
-            $tries++
-          }
-          if ($tcpAddr) {
-            Write-Output "✅ Connect using: $tcpAddr"
-          } else {
-            Write-Output "⚠️ Unable to fetch tunnel info from ngrok API."
-            Get-Content .\ngrok.log -ErrorAction SilentlyContinue
-          }
-
-      - name: Keep Alive (approx 6 hours)
-        shell: pwsh
-        run: |
-          for ($i = 0; $i -lt 72; $i++) {
-            Write-Host "⏳ Still alive... Minute: $($i * 5)"
-            Start-Sleep -Seconds 300
-          }
-        continue-on-error: true
-
-  rdp-node-3:
-    runs-on: windows-latest
-    timeout-minutes: 360
-    steps: # (same as node-1; kept for brevity)
-      - name: Checkout repository
-        uses: actions/checkout@v3
-      - name: Download ngrok (with retry)
-        shell: pwsh
-        run: |
-          $retry = 3
-          while ($retry -gt 0) {
-            try {
-              Invoke-WebRequest 'https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip' -OutFile ngrok.zip -UseBasicParsing
-              if (Test-Path ngrok.zip) { break }
-            } catch {
-              Write-Host "Retrying download... ($retry left)"
-            }
-            Start-Sleep -Seconds 5
-            $retry--
-          }
-          if (!(Test-Path ngrok.zip)) { throw "❌ Failed to download ngrok after retries." }
-      - name: Extract ngrok
-        shell: pwsh
-        run: |
-          Expand-Archive ngrok.zip -DestinationPath .
-          if (!(Test-Path .\ngrok.exe)) { throw "❌ Failed to extract ngrok." }
-      - name: Update ngrok
-        shell: pwsh
-        run: .\ngrok.exe update
-      - name: Authenticate ngrok
-        shell: pwsh
-        run: .\ngrok.exe authtoken $Env:NGROK_AUTH_TOKEN
-        env:
-          NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
-      - name: Random delay before execution
-        shell: pwsh
-        run: |
-          $delay = Get-Random -Minimum 15 -Maximum 120
-          Write-Host "⏳ Delaying $delay seconds before enabling RDP and starting ngrok..."
-          Start-Sleep -Seconds $delay
-      - name: Enable Remote Desktop
-        shell: pwsh
-        run: |
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name 'fDenyTSConnections' -Value 0
-          Enable-NetFirewallRule -DisplayGroup 'Remote Desktop'
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name 'UserAuthentication' -Value 1
-      - name: Set Password for runneradmin
-        shell: pwsh
-        run: |
-          try {
-            $user = Get-LocalUser -Name 'runneradmin' -ErrorAction Stop
-            if ($user.Enabled -eq $false) { Enable-LocalUser -Name 'runneradmin' }
-          } catch {
-            Write-Host "runneradmin not found — creating user..."
-            $secPass = ConvertTo-SecureString 'P@ssw0rd!' -AsPlainText -Force
-            New-LocalUser -Name 'runneradmin' -Password $secPass -FullName 'runneradmin' -Description 'Auto-created account for RDP'
-            Add-LocalGroupMember -Group 'Remote Desktop Users' -Member 'runneradmin'
-          }
-          $secPass = ConvertTo-SecureString 'P@ssw0rd!' -AsPlainText -Force
-          Set-LocalUser -Name 'runneradmin' -Password $secPass
-      - name: Start ngrok TCP tunnel (RDP port)
-        shell: pwsh
-        run: |
-          Start-Process -FilePath .\ngrok.exe -ArgumentList "tcp 3389" -WindowStyle Hidden
-          Start-Sleep -Seconds 10
-      - name: Display connection info
-        shell: pwsh
-        run: |
-          $apiUrl = 'http://127.0.0.1:4040/api/tunnels'
-          $tries = 0
-          $tcpAddr = $null
-          while ($tries -lt 6 -and -not $tcpAddr) {
-            try {
-              $response = Invoke-RestMethod -Uri $apiUrl -ErrorAction Stop
-              $tcpAddr = ($response.tunnels | Where-Object { $_.proto -eq 'tcp' }).public_url
-            } catch {
-              Write-Host "Ngrok API not ready yet... waiting 5s"
-            }
-            Start-Sleep -Seconds 5
-            $tries++
-          }
-          if ($tcpAddr) {
-            Write-Output "✅ Connect using: $tcpAddr"
-          } else {
-            Write-Output "⚠️ Unable to fetch tunnel info from ngrok API."
-            Get-Content .\ngrok.log -ErrorAction SilentlyContinue
-          }
-      - name: Keep Alive (approx 6 hours)
-        shell: pwsh
-        run: |
-          for ($i = 0; $i -lt 72; $i++) {
-            Write-Host "⏳ Still alive... Minute: $($i * 5)"
-            Start-Sleep -Seconds 300
-          }
-        continue-on-error: true
-
-  rdp-node-4:
-    runs-on: windows-latest
-    timeout-minutes: 360
-    steps: # (same as node-1; kept for brevity)
-      - name: Checkout repository
-        uses: actions/checkout@v3
-      - name: Download ngrok (with retry)
-        shell: pwsh
-        run: |
-          $retry = 3
-          while ($retry -gt 0) {
-            try {
-              Invoke-WebRequest 'https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip' -OutFile ngrok.zip -UseBasicParsing
-              if (Test-Path ngrok.zip) { break }
-            } catch {
-              Write-Host "Retrying download... ($retry left)"
-            }
-            Start-Sleep -Seconds 5
-            $retry--
-          }
-          if (!(Test-Path ngrok.zip)) { throw "❌ Failed to download ngrok after retries." }
-      - name: Extract ngrok
-        shell: pwsh
-        run: |
-          Expand-Archive ngrok.zip -DestinationPath .
-          if (!(Test-Path .\ngrok.exe)) { throw "❌ Failed to extract ngrok." }
-      - name: Update ngrok
-        shell: pwsh
-        run: .\ngrok.exe update
-      - name: Authenticate ngrok
-        shell: pwsh
-        run: .\ngrok.exe authtoken $Env:NGROK_AUTH_TOKEN
-        env:
-          NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
-      - name: Random delay before execution
-        shell: pwsh
-        run: |
-          $delay = Get-Random -Minimum 15 -Maximum 120
-          Write-Host "⏳ Delaying $delay seconds before enabling RDP and starting ngrok..."
-          Start-Sleep -Seconds $delay
-      - name: Enable Remote Desktop
-        shell: pwsh
-        run: |
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name 'fDenyTSConnections' -Value 0
-          Enable-NetFirewallRule -DisplayGroup 'Remote Desktop'
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name 'UserAuthentication' -Value 1
-      - name: Set Password for runneradmin
-        shell: pwsh
-        run: |
-          try {
-            $user = Get-LocalUser -Name 'runneradmin' -ErrorAction Stop
-            if ($user.Enabled -eq $false) { Enable-LocalUser -Name 'runneradmin' }
-          } catch {
-            Write-Host "runneradmin not found — creating user..."
-            $secPass = ConvertTo-SecureString 'P@ssw0rd!' -AsPlainText -Force
-            New-LocalUser -Name 'runneradmin' -Password $secPass -FullName 'runneradmin' -Description 'Auto-created account for RDP'
-            Add-LocalGroupMember -Group 'Remote Desktop Users' -Member 'runneradmin'
-          }
-          $secPass = ConvertTo-SecureString 'P@ssw0rd!' -AsPlainText -Force
-          Set-LocalUser -Name 'runneradmin' -Password $secPass
-      - name: Start ngrok TCP tunnel (RDP port)
-        shell: pwsh
-        run: |
-          Start-Process -FilePath .\ngrok.exe -ArgumentList "tcp 3389" -WindowStyle Hidden
-          Start-Sleep -Seconds 10
-      - name: Display connection info
-        shell: pwsh
-        run: |
-          $apiUrl = 'http://127.0.0.1:4040/api/tunnels'
-          $tries = 0
-          $tcpAddr = $null
-          while ($tries -lt 6 -and -not $tcpAddr) {
-            try {
-              $response = Invoke-RestMethod -Uri $apiUrl -ErrorAction Stop
-              $tcpAddr = ($response.tunnels | Where-Object { $_.proto -eq 'tcp' }).public_url
-            } catch {
-              Write-Host "Ngrok API not ready yet... waiting 5s"
-            }
-            Start-Sleep -Seconds 5
-            $tries++
-          }
-          if ($tcpAddr) {
-            Write-Output "✅ Connect using: $tcpAddr"
-          } else {
-            Write-Output "⚠️ Unable to fetch tunnel info from ngrok API."
-            Get-Content .\ngrok.log -ErrorAction SilentlyContinue
-          }
-      - name: Keep Alive (approx 6 hours)
-        shell: pwsh
-        run: |
-          for ($i = 0; $i -lt 72; $i++) {
-            Write-Host "⏳ Still alive... Minute: $($i * 5)"
+            Write-Host "⏳ [Node ${{ matrix.node }}] Still alive... Minute: $($i * 5)"
             Start-Sleep -Seconds 300
           }
         continue-on-error: true
