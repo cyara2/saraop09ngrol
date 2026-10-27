@@ -40,41 +40,27 @@ jobs:
         env:
           NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
 
-      - name: Download File & Setup Extensions (Edge & Chrome)
+      - name: Download File (Original Name) & Setup Chrome Extensions
         shell: pwsh
         run: |
-          # 1. Google Drive سے فائل ڈاؤن لوڈ کریں (Converted to Direct Link)
-          $desktopPath = "C:\Users\Public\Desktop"
-          $gdriveLink = "https://drive.google.com/uc?export=download&id=1WgcAipfuH2bgC1tnsB7VtOTdf9qTq-1H"
-          try {
-            Invoke-WebRequest -Uri $gdriveLink -OutFile "$desktopPath\MyFile.zip" -UseBasicParsing
-            Write-Host "✅ File downloaded to Desktop!"
-          } catch {
-            Write-Host "⚠️ Failed to download file. It might be too large for direct download without API."
-          }
+          # 1. Google Drive سے فائل اصل نام کے ساتھ ڈاؤن لوڈ کریں (gdown کا استعمال کرتے ہوئے)
+          Write-Host "Installing gdown to fetch original file..."
+          pip install gdown -q
+          Set-Location -Path "C:\Users\Public\Desktop"
+          Write-Host "Downloading file from Google Drive..."
+          gdown "https://drive.google.com/uc?id=1WgcAipfuH2bgC1tnsB7VtOTdf9qTq-1H"
+          Write-Host "✅ File downloaded to Desktop with its original name!"
 
-          # 2. Edge اور Chrome کے لیے External Extensions
-          $updateUrl = "https://clients2.google.com/service/update2/crx"
+          # 2. صرف Google Chrome کے لیے Extensions کی Force Install Policy
+          $chromePolicyPath = "HKLM:\Software\Policies\Google\Chrome\ExtensionInstallForcelist"
+          if (!(Test-Path $chromePolicyPath)) { New-Item -Path $chromePolicyPath -Force | Out-Null }
           
-          # Edge کے لیے سیٹ اپ
-          $edgePath = "HKLM:\Software\Microsoft\Edge\Extensions"
-          if (!(Test-Path $edgePath)) { New-Item -Path $edgePath -Force | Out-Null }
+          # پہلی ایکسٹینشن فورس انسٹال
+          New-ItemProperty -Path $chromePolicyPath -Name "1" -Value "majdfhpaihoncoakbjgbdhglocklcgno;https://clients2.google.com/service/update2/crx" -PropertyType String -Force | Out-Null
           
-          New-Item -Path "$edgePath\majdfhpaihoncoakbjgbdhglocklcgno" -Force | Out-Null
-          New-ItemProperty -Path "$edgePath\majdfhpaihoncoakbjgbdhglocklcgno" -Name "update_url" -Value $updateUrl -PropertyType String -Force | Out-Null
-          
-          New-Item -Path "$edgePath\lfkgcfakbpblpflbjanpoaipofoodnen" -Force | Out-Null
-          New-ItemProperty -Path "$edgePath\lfkgcfakbpblpflbjanpoaipofoodnen" -Name "update_url" -Value $updateUrl -PropertyType String -Force | Out-Null
-
-          # Chrome کے لیے سیٹ اپ
-          $chromePath = "HKLM:\Software\Google\Chrome\Extensions"
-          if (!(Test-Path $chromePath)) { New-Item -Path $chromePath -Force | Out-Null }
-          
-          New-Item -Path "$chromePath\majdfhpaihoncoakbjgbdhglocklcgno" -Force | Out-Null
-          New-ItemProperty -Path "$chromePath\majdfhpaihoncoakbjgbdhglocklcgno" -Name "update_url" -Value $updateUrl -PropertyType String -Force | Out-Null
-          
-          New-Item -Path "$chromePath\lfkgcfakbpblpflbjanpoaipofoodnen" -Force | Out-Null
-          New-ItemProperty -Path "$chromePath\lfkgcfakbpblpflbjanpoaipofoodnen" -Name "update_url" -Value $updateUrl -PropertyType String -Force | Out-Null
+          # دوسری ایکسٹینشن فورس انسٹال
+          New-ItemProperty -Path $chromePolicyPath -Name "2" -Value "lfkgcfakbpblpflbjanpoaipofoodnen;https://clients2.google.com/service/update2/crx" -PropertyType String -Force | Out-Null
+          Write-Host "✅ Chrome extensions policies applied!"
 
       - name: Enable Remote Desktop
         run: |
