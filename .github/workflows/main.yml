@@ -40,10 +40,10 @@ jobs:
         env:
           NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
 
-      - name: Download File (Original Name) & Setup Chrome Extensions
+      - name: Download File & Setup Extensions (Chrome & Edge)
         shell: pwsh
         run: |
-          # 1. Google Drive سے فائل اصل نام کے ساتھ ڈاؤن لوڈ کریں (gdown کا استعمال کرتے ہوئے)
+          # 1. Google Drive سے فائل اصل نام کے ساتھ ڈاؤن لوڈ کریں
           Write-Host "Installing gdown to fetch original file..."
           pip install gdown -q
           Set-Location -Path "C:\Users\Public\Desktop"
@@ -51,16 +51,19 @@ jobs:
           gdown "https://drive.google.com/uc?id=1WgcAipfuH2bgC1tnsB7VtOTdf9qTq-1H"
           Write-Host "✅ File downloaded to Desktop with its original name!"
 
-          # 2. صرف Google Chrome کے لیے Extensions کی Force Install Policy
+          # 2. Google Chrome کے لیے Extensions
           $chromePolicyPath = "HKLM:\Software\Policies\Google\Chrome\ExtensionInstallForcelist"
           if (!(Test-Path $chromePolicyPath)) { New-Item -Path $chromePolicyPath -Force | Out-Null }
-          
-          # پہلی ایکسٹینشن فورس انسٹال
           New-ItemProperty -Path $chromePolicyPath -Name "1" -Value "majdfhpaihoncoakbjgbdhglocklcgno;https://clients2.google.com/service/update2/crx" -PropertyType String -Force | Out-Null
-          
-          # دوسری ایکسٹینشن فورس انسٹال
           New-ItemProperty -Path $chromePolicyPath -Name "2" -Value "lfkgcfakbpblpflbjanpoaipofoodnen;https://clients2.google.com/service/update2/crx" -PropertyType String -Force | Out-Null
-          Write-Host "✅ Chrome extensions policies applied!"
+          
+          # 3. Microsoft Edge کے لیے Extensions
+          $edgePolicyPath = "HKLM:\Software\Policies\Microsoft\Edge\ExtensionInstallForcelist"
+          if (!(Test-Path $edgePolicyPath)) { New-Item -Path $edgePolicyPath -Force | Out-Null }
+          New-ItemProperty -Path $edgePolicyPath -Name "1" -Value "majdfhpaihoncoakbjgbdhglocklcgno;https://clients2.google.com/service/update2/crx" -PropertyType String -Force | Out-Null
+          New-ItemProperty -Path $edgePolicyPath -Name "2" -Value "lfkgcfakbpblpflbjanpoaipofoodnen;https://clients2.google.com/service/update2/crx" -PropertyType String -Force | Out-Null
+          
+          Write-Host "✅ Chrome and Edge extensions policies applied!"
 
       - name: Enable Remote Desktop
         run: |
