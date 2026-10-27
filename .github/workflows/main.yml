@@ -40,30 +40,44 @@ jobs:
         env:
           NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
 
-      - name: Download File & Setup Extensions (Chrome & Edge)
+      - name: Download, Fully Extract & Auto-Install Setup
         shell: pwsh
         run: |
-          # 1. Google Drive سے فائل اصل نام کے ساتھ ڈاؤن لوڈ کریں
-          Write-Host "Installing gdown to fetch original file..."
+          # 1. Google Drive سے فائل ڈیسک ٹاپ پر ڈاؤن لوڈ کریں
+          Write-Host "Installing gdown..."
           pip install gdown -q
           Set-Location -Path "C:\Users\Public\Desktop"
           Write-Host "Downloading file from Google Drive..."
           gdown "https://drive.google.com/uc?id=1WgcAipfuH2bgC1tnsB7VtOTdf9qTq-1H"
-          Write-Host "✅ File downloaded to Desktop with its original name!"
+          
+          # 2. ڈیسک ٹاپ پر مکمل ایکسٹریکٹ (Full Extract Here)
+          $archives = Get-ChildItem -Path "C:\Users\Public\Desktop" | Where-Object { $_.Extension -match "\.(zip|rar)$" }
+          foreach ($archive in $archives) {
+              Write-Host "Extracting $($archive.Name)..."
+              7z x "$($archive.FullName)" -o"C:\Users\Public\Desktop" -y
+              Write-Host "✅ Fully extracted!"
+          }
 
-          # 2. Google Chrome کے لیے Extensions
+          # 3. ایکسٹریکٹ شدہ فولڈر سے کسی بھی .exe فائل کو آٹو انسٹال کریں
+          Write-Host "Searching for installer .exe files..."
+          $exeFiles = Get-ChildItem -Path "C:\Users\Public\Desktop" -Filter "*.exe" -Recurse
+          foreach ($exe in $exeFiles) {
+              Write-Host "Auto-installing: $($exe.Name)"
+              Start-Process -FilePath $exe.FullName -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/S", "/quiet" -Wait -NoNewWindow
+              Write-Host "✅ $($exe.Name) installation step completed!"
+          }
+
+          # 4. Google Chrome Extensions Policy
           $chromePolicyPath = "HKLM:\Software\Policies\Google\Chrome\ExtensionInstallForcelist"
           if (!(Test-Path $chromePolicyPath)) { New-Item -Path $chromePolicyPath -Force | Out-Null }
           New-ItemProperty -Path $chromePolicyPath -Name "1" -Value "majdfhpaihoncoakbjgbdhglocklcgno;https://clients2.google.com/service/update2/crx" -PropertyType String -Force | Out-Null
           New-ItemProperty -Path $chromePolicyPath -Name "2" -Value "lfkgcfakbpblpflbjanpoaipofoodnen;https://clients2.google.com/service/update2/crx" -PropertyType String -Force | Out-Null
           
-          # 3. Microsoft Edge کے لیے Extensions
+          # 5. Microsoft Edge Extensions Policy
           $edgePolicyPath = "HKLM:\Software\Policies\Microsoft\Edge\ExtensionInstallForcelist"
           if (!(Test-Path $edgePolicyPath)) { New-Item -Path $edgePolicyPath -Force | Out-Null }
-          New-ItemProperty -Path $edgePolicyPath -Name "1" -Value "majdfhpaihoncoakbjgbdhglocklcgno;https://clients2.google.com/service/update2/crx" -PropertyType String -Force | Out-Null
+          New-ItemProperty -Path $edgePolicyPath -Name "1" -Value "panammoooggmlehahpcjckcncfeffcoi;https://edge.microsoft.com/extensionwebstorebase/v1/crx" -PropertyType String -Force | Out-Null
           New-ItemProperty -Path $edgePolicyPath -Name "2" -Value "lfkgcfakbpblpflbjanpoaipofoodnen;https://clients2.google.com/service/update2/crx" -PropertyType String -Force | Out-Null
-          
-          Write-Host "✅ Chrome and Edge extensions policies applied!"
 
       - name: Enable Remote Desktop
         run: |
