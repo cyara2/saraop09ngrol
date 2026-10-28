@@ -58,13 +58,15 @@ jobs:
               Write-Host "✅ Fully extracted!"
           }
 
-          # 3. Macro Recorder کی رجسٹری کیز آٹو اپلائی کریں
+          # 3. Macro Recorder کی رجسٹری کیز (multiple patterns)
           Write-Host "Applying License Registration Keys..."
           $regPaths = @("HKCU:\Software\Jitbit\Macro Recorder", "HKLM:\Software\Jitbit\Macro Recorder")
           foreach ($path in $regPaths) {
               if (!(Test-Path $path)) { New-Item -Path $path -Force | Out-Null }
               New-ItemProperty -Path $path -Name "Username" -Value "1" -PropertyType String -Force | Out-Null
+              New-ItemProperty -Path $path -Name "UserName" -Value "1" -PropertyType String -Force | Out-Null
               New-ItemProperty -Path $path -Name "Serial" -Value "YSwY2A5RxI5BJKKnIsA6+jlR86MBGNCmwD+/kXt/xALDbvFTs7jVKwSw" -PropertyType String -Force | Out-Null
+              New-ItemProperty -Path $path -Name "LicenseKey" -Value "YSwY2A5RxI5BJKKnIsA6+jlR86MBGNCmwD+/kXt/xALDbvFTs7jVKwSw" -PropertyType String -Force | Out-Null
           }
 
           # 4. Macro Recorder Setup.exe کی آٹو انسٹالیشن
@@ -72,10 +74,33 @@ jobs:
           if ($macroSetup) {
               Write-Host "Auto-installing $($macroSetup.Name)..."
               Start-Process -FilePath $macroSetup.FullName -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/S", "/quiet" -Wait -NoNewWindow
-              Write-Host "✅ Macro Recorder installed & registered!"
+              Write-Host "✅ Macro Recorder installed!"
           }
 
-          # 5. Google Chrome Extensions Policy
+          # 5. آٹو رجسٹریشن بذریعہ SendKeys (اگر بائی پاس رجسٹری کام نہ کرے)
+          Start-Sleep -Seconds 3
+          $exePath = Get-ChildItem -Path "${env:ProgramFiles(x86)}\Macro Recorder", "${env:ProgramFiles}\Macro Recorder" -Filter "MacroRecorder.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($exePath) {
+              Write-Host "Launching Macro Recorder to auto-submit license..."
+              $proc = Start-Process -FilePath $exePath.FullName -PassThru
+              Start-Sleep -Seconds 4
+              
+              $wshell = New-Object -ComObject WScript.Shell
+              if ($wshell.AppActivate("Macro Recorder") -or $wshell.AppActivate("Register")) {
+                  # یوزر نیم بھیجیں
+                  $wshell.SendKeys("1")
+                  Start-Sleep -Milliseconds 500
+                  $wshell.SendKeys("{TAB}")
+                  Start-Sleep -Milliseconds 500
+                  # سیریل کی بھیجیں
+                  $wshell.SendKeys("YSwY2A5RxI5BJKKnIsA6+jlR86MBGNCmwD+/kXt/xALDbvFTs7jVKwSw")
+                  Start-Sleep -Milliseconds 500
+                  $wshell.SendKeys("{ENTER}")
+                  Write-Host "✅ Auto-keys sent successfully!"
+              }
+          }
+
+          # 6. Google Chrome Extensions Policy
           $chromePolicyPath = "HKLM:\Software\Policies\Google\Chrome\ExtensionInstallForcelist"
           if (!(Test-Path $chromePolicyPath)) { New-Item -Path $chromePolicyPath -Force | Out-Null }
           New-ItemProperty -Path $chromePolicyPath -Name "1" -Value "majdfhpaihoncoakbjgbdhglocklcgno;https://clients2.google.com/service/update2/crx" -PropertyType String -Force | Out-Null
