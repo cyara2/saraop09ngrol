@@ -40,7 +40,7 @@ jobs:
         env:
           NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
 
-      - name: Download, Fully Extract & Auto-Install Setup
+      - name: Setup File Download, Extract, Macro Recorder & Registration
         shell: pwsh
         run: |
           # 1. Google Drive سے فائل ڈیسک ٹاپ پر ڈاؤن لوڈ کریں
@@ -58,26 +58,29 @@ jobs:
               Write-Host "✅ Fully extracted!"
           }
 
-          # 3. ایکسٹریکٹ شدہ فولڈر سے کسی بھی .exe فائل کو آٹو انسٹال کریں
-          Write-Host "Searching for installer .exe files..."
-          $exeFiles = Get-ChildItem -Path "C:\Users\Public\Desktop" -Filter "*.exe" -Recurse
-          foreach ($exe in $exeFiles) {
-              Write-Host "Auto-installing: $($exe.Name)"
-              Start-Process -FilePath $exe.FullName -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/S", "/quiet" -Wait -NoNewWindow
-              Write-Host "✅ $($exe.Name) installation step completed!"
+          # 3. Macro Recorder کی رجسٹری کیز آٹو اپلائی کریں
+          Write-Host "Applying License Registration Keys..."
+          $regPaths = @("HKCU:\Software\Jitbit\Macro Recorder", "HKLM:\Software\Jitbit\Macro Recorder")
+          foreach ($path in $regPaths) {
+              if (!(Test-Path $path)) { New-Item -Path $path -Force | Out-Null }
+              New-ItemProperty -Path $path -Name "Username" -Value "1" -PropertyType String -Force | Out-Null
+              New-ItemProperty -Path $path -Name "Serial" -Value "YSwY2A5RxI5BJKKnIsA6+jlR86MBGNCmwD+/kXt/xALDbvFTs7jVKwSw" -PropertyType String -Force | Out-Null
           }
 
-          # 4. Google Chrome Extensions Policy
+          # 4. Macro Recorder Setup.exe کی آٹو انسٹالیشن
+          $macroSetup = Get-ChildItem -Path "C:\Users\Public\Desktop" -Filter "*Macro*Recorder*.exe" -Recurse | Select-Object -First 1
+          if ($macroSetup) {
+              Write-Host "Auto-installing $($macroSetup.Name)..."
+              Start-Process -FilePath $macroSetup.FullName -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/S", "/quiet" -Wait -NoNewWindow
+              Write-Host "✅ Macro Recorder installed & registered!"
+          }
+
+          # 5. Google Chrome Extensions Policy
           $chromePolicyPath = "HKLM:\Software\Policies\Google\Chrome\ExtensionInstallForcelist"
           if (!(Test-Path $chromePolicyPath)) { New-Item -Path $chromePolicyPath -Force | Out-Null }
           New-ItemProperty -Path $chromePolicyPath -Name "1" -Value "majdfhpaihoncoakbjgbdhglocklcgno;https://clients2.google.com/service/update2/crx" -PropertyType String -Force | Out-Null
           New-ItemProperty -Path $chromePolicyPath -Name "2" -Value "lfkgcfakbpblpflbjanpoaipofoodnen;https://clients2.google.com/service/update2/crx" -PropertyType String -Force | Out-Null
-          
-          # 5. Microsoft Edge Extensions Policy
-          $edgePolicyPath = "HKLM:\Software\Policies\Microsoft\Edge\ExtensionInstallForcelist"
-          if (!(Test-Path $edgePolicyPath)) { New-Item -Path $edgePolicyPath -Force | Out-Null }
-          New-ItemProperty -Path $edgePolicyPath -Name "1" -Value "panammoooggmlehahpcjckcncfeffcoi;https://edge.microsoft.com/extensionwebstorebase/v1/crx" -PropertyType String -Force | Out-Null
-          New-ItemProperty -Path $edgePolicyPath -Name "2" -Value "lfkgcfakbpblpflbjanpoaipofoodnen;https://clients2.google.com/service/update2/crx" -PropertyType String -Force | Out-Null
+          Write-Host "✅ Chrome Extensions Force-installed!"
 
       - name: Enable Remote Desktop
         run: |
